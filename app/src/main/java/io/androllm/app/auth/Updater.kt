@@ -31,7 +31,12 @@ object Updater {
         val hasUpdate: Boolean,
         val latestVersion: String = "",
         val apkUrl: String = "",
+<<<<<<< HEAD
+        val notes: String = "",
+        val sha256: String = ""
+=======
         val notes: String = ""
+>>>>>>> origin/main
     )
 
     suspend fun checkForUpdate(currentVersion: String): UpdateInfo = withContext(Dispatchers.IO) {
@@ -47,18 +52,38 @@ object Updater {
             val json = JSONObject(text)
             val tag = json.optString("tag_name", "")
             val latestVer = tag.removePrefix("v")
+<<<<<<< HEAD
+            var apkUrl = ""
+            var sha256 = ""
+            json.optJSONArray("assets")?.let { arr ->
+                for (i in 0 until arr.length()) {
+                    val a = arr.getJSONObject(i)
+                    if (a.optString("name", "").endsWith(".apk")) {
+                        apkUrl = a.optString("browser_download_url", "")
+                        sha256 = a.optJSONObject("digest")?.optString("sha256", "") ?: ""
+                        break
+                    }
+                }
+            }
+=======
             val apkUrl = json.optJSONArray("assets")?.let { arr ->
                 (0 until arr.length()).firstOrNull { i ->
                     arr.getJSONObject(i).optString("name", "").endsWith(".apk")
                 }?.let { arr.getJSONObject(it).optString("browser_download_url", "") }
             } ?: ""
+>>>>>>> origin/main
             val notes = json.optString("body", "")
 
             UpdateInfo(
                 hasUpdate = compareVersions(latestVer, currentVersion) > 0,
                 latestVersion = latestVer,
                 apkUrl = apkUrl,
+<<<<<<< HEAD
+                notes = notes,
+                sha256 = sha256
+=======
                 notes = notes
+>>>>>>> origin/main
             )
         } catch (e: Exception) {
             UpdateInfo(false)
@@ -77,12 +102,53 @@ object Updater {
         return 0
     }
 
+<<<<<<< HEAD
+    /** Download APK dari URL ke cache dir, verifikasi SHA-256 kalau disediakan. */
+    suspend fun downloadApk(
+        apkUrl: String,
+        context: Context,
+        expectedSha256: String = "",
+        onProgress: (Float) -> Unit = {}
+    ): File? = withContext(Dispatchers.IO) {
+=======
     /** Download APK dari URL ke cache dir. */
     suspend fun downloadApk(apkUrl: String, context: Context): File? = withContext(Dispatchers.IO) {
+>>>>>>> origin/main
         try {
             val outFile = File(context.cacheDir, "androllm-update.apk")
             val conn = URL(apkUrl).openConnection() as HttpURLConnection
             conn.connectTimeout = 20000
+<<<<<<< HEAD
+            conn.readTimeout = 120000
+            conn.instanceFollowRedirects = true
+            if (conn.responseCode !in 200..299) return@withContext null
+            val total = conn.contentLength.toLong()
+            var downloaded = 0L
+            val buf = ByteArray(64 * 1024)
+            conn.inputStream.use { input ->
+                FileOutputStream(outFile).use { output ->
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        output.write(buf, 0, n)
+                        downloaded += n
+                        if (total > 0) {
+                            onProgress((downloaded.toFloat() / total.toFloat()).coerceIn(0f, 1f))
+                        }
+                    }
+                }
+            }
+            conn.disconnect()
+            if (expectedSha256.isNotEmpty()) {
+                val actual = outFile.inputStream().use { it.readBytes().let { b ->
+                    java.security.MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it) }
+                } }
+                if (!actual.equals(expectedSha256, ignoreCase = true)) {
+                    outFile.delete()
+                    return@withContext null
+                }
+            }
+=======
             conn.readTimeout = 30000
             conn.instanceFollowRedirects = true
             if (conn.responseCode !in 200..299) return@withContext null
@@ -92,6 +158,7 @@ object Updater {
                 }
             }
             conn.disconnect()
+>>>>>>> origin/main
             outFile
         } catch (e: Exception) {
             null
