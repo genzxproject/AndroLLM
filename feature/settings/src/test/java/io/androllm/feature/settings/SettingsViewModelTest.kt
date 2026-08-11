@@ -1,4 +1,4 @@
-package io.androllm.feature.settings
+﻿package io.androllm.feature.settings
 
 import android.content.Context
 import io.androllm.core.common.UiState
@@ -30,6 +30,15 @@ import io.androllm.core.voice.model.VoiceSettings
 import io.androllm.feature.voice.VoiceAssistantController
 import io.androllm.feature.voice.VoiceUiState
 
+import io.androllm.core.tools.registry.ToolRegistry
+import io.androllm.core.tools.settings.AutomationSettings
+import io.androllm.core.tools.settings.AutomationSettingsStore
+import io.androllm.core.mcp.McpConnectionManager
+import io.androllm.core.mcp.McpSettingsStore
+import io.androllm.core.accessibility.controller.AccessibilityController
+import io.androllm.core.accessibility.settings.AccessibilitySettingsStore
+import io.androllm.core.voice.stt.WhisperModelManager
+import io.androllm.core.voice.stt.WhisperSpeechRecognizer
 import io.androllm.core.voice.wakeword.WakeWordEngine
 
 /**
@@ -44,6 +53,14 @@ class SettingsViewModelTest {
     private val voiceSettingsStore: VoiceSettingsStore = mockk(relaxed = true)
     private val voiceController: VoiceAssistantController = mockk(relaxed = true)
     private val wakeWordEngine: WakeWordEngine = mockk(relaxed = true)
+    private val whisperModelManager: WhisperModelManager = mockk(relaxed = true)
+    private val whisperSpeechRecognizer: WhisperSpeechRecognizer = mockk(relaxed = true)
+    private val automationSettingsStore: AutomationSettingsStore = mockk(relaxed = true)
+    private val toolRegistry: ToolRegistry = mockk(relaxed = true)
+    private val accessibilitySettingsStore: AccessibilitySettingsStore = mockk(relaxed = true)
+    private val accessibilityController: AccessibilityController = mockk(relaxed = true)
+    private val mcpSettingsStore: McpSettingsStore = mockk(relaxed = true)
+    private val mcpConnectionManager: McpConnectionManager = mockk(relaxed = true)
 
     @Before
     fun setUp() {
@@ -60,6 +77,8 @@ class SettingsViewModelTest {
         every { voiceSettingsStore.settings } returns flowOf(VoiceSettings())
         coEvery { voiceSettingsStore.current() } returns VoiceSettings()
         every { voiceController.state } returns MutableStateFlow(VoiceUiState())
+        every { mcpSettingsStore.servers } returns flowOf(emptyList())
+        every { mcpConnectionManager.states } returns MutableStateFlow(emptyMap())
     }
 
     @After
@@ -73,7 +92,12 @@ class SettingsViewModelTest {
             AppSettings(theme = ThemeMode.DARK, developerMode = true)
         )
 
-        val viewModel = SettingsViewModel(context, settingsRepository, memoryManager, voiceSettingsStore, voiceController, wakeWordEngine)
+        val viewModel = SettingsViewModel(
+            context, settingsRepository, memoryManager, voiceSettingsStore, voiceController,
+            wakeWordEngine, whisperModelManager, whisperSpeechRecognizer,
+            automationSettingsStore, toolRegistry, accessibilitySettingsStore, accessibilityController,
+            mcpSettingsStore, mcpConnectionManager
+        )
 
         val state = viewModel.uiState.value
         assertTrue(state is UiState.Success)
@@ -86,7 +110,12 @@ class SettingsViewModelTest {
     fun `defaults are used when no settings exist`() = runTest {
         every { settingsRepository.observeSettings() } returns flowOf(AppSettings())
 
-        val viewModel = SettingsViewModel(context, settingsRepository, memoryManager, voiceSettingsStore, voiceController, wakeWordEngine)
+        val viewModel = SettingsViewModel(
+            context, settingsRepository, memoryManager, voiceSettingsStore, voiceController,
+            wakeWordEngine, whisperModelManager, whisperSpeechRecognizer,
+            automationSettingsStore, toolRegistry, accessibilitySettingsStore, accessibilityController,
+            mcpSettingsStore, mcpConnectionManager
+        )
 
         val state = viewModel.uiState.value
         assertTrue(state is UiState.Success)

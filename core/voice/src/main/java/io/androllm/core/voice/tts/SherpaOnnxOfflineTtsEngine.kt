@@ -9,6 +9,7 @@ import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsVitsModelConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.androllm.core.voice.model.VoiceModels
+import io.androllm.core.voice.tts.normalize.TextNormalizationEngine
 import javax.inject.Inject
 import javax.inject.Singleton
 import timber.log.Timber
@@ -23,10 +24,33 @@ import timber.log.Timber
  */
 @Singleton
 class SherpaOnnxOfflineTtsEngine @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val textNormalization: TextNormalizationEngine
 ) : OfflineTtsEngine {
 
     private var tts: OfflineTts? = null
+
+    /**
+     * Lowercase word set from the VITS lexicon. Words missing from it are
+     * dropped mid-synthesis by sherpa-onnx ("OOV x, ignore it!"), so we
+     * re-spell them letter-by-letter instead. Built lazily on first init.
+     */
+    private var lexicon: Set<String>? = null
+
+    /**
+     * Providers tried in order when (re)initializing the model.
+     *
+     *  - "nnapi"  : Android NN API — offloads supported ops to the GPU/NPU
+     *    (fastest for long texts when the device HAL cooperates; VITS graphs
+     *    fall back to CPU per-op inside onnxruntime when not supported).
+     *  - "xnnpack": onnxruntime XNNPACK EP — multi-threaded SIMD CPU inference,
+     *    a solid 2-3x over the default provider on Oryon-class cores.
+     *  - "cpu"    : the default, always works.
+     *
+     * The chain is verified with a probe synthesis so a provider that
+     * initializes but only produces silence is rejected instead of shipped.
+     */
+    private val providerPriority = listOf("nnapi", "xnnpack", "cpu")
 
     override val isInitialized: Boolean get() = tts != null
 
@@ -40,28 +64,73 @@ class SherpaOnnxOfflineTtsEngine @Inject constructor(
             Timber.w("SherpaOnnxOfflineTtsEngine: TTS assets missing")
             return false
         }
-        return runCatching {
-            val vits = OfflineTtsVitsModelConfig().apply {
-                model = VoiceModels.TTS_MODEL
-                tokens = VoiceModels.TTS_TOKENS
-                lexicon = VoiceModels.TTS_LEXICON
-                noiseScale = 0.667f
-                noiseScaleW = 0.8f
-                lengthScale = 1.0f
+        for (provider in providerPriority) {
+            if (createTts(provider)) {
+                lexicon = try {
+                    val words = context.assets.open(VoiceModels.TTS_LEXICON)
+                        .bufferedReader().useLines { lines ->
+                            lines.map { it.substringBefore(' ').lowercase() }
+                                .filter { it.isNotEmpty() }
+                                .toHashSet()
+                        }
+                    Timber.i("SherpaOnnxOfflineTtsEngine: lexicon loaded (${words.size} words)")
+                    words
+                } catch (t: Throwable) {
+                    Timber.w(t, "TTS lexicon read failed — OOV spelling disabled")
+                    null
+                }
+                Timber.i("SherpaOnnxOfflineTtsEngine: initialized (provider=$provider)")
+                return true
             }
-            val ttsModel = OfflineTtsModelConfig().apply {
-                this.vits = vits
-                numThreads = 2
-                debug = false
-                provider = "cpu"
-            }
-            val config = OfflineTtsConfig().apply {
-                model = ttsModel
-                silenceScale = 0.8f
-            }
-            tts = OfflineTts(context.assets, config)
-            true
-        }.onFailure { Timber.e(it, "TTS init failed") }.getOrDefault(false)
+        }
+        return false
+    }
+
+    private fun createTts(provider: String): Boolean = runCatching {
+        val vits = OfflineTtsVitsModelConfig().apply {
+            model = VoiceModels.TTS_MODEL
+            tokens = VoiceModels.TTS_TOKENS
+            lexicon = VoiceModels.TTS_LEXICON
+            noiseScale = 0.667f
+            noiseScaleW = 0.8f
+            lengthScale = 1.0f
+        }
+        val ttsModel = OfflineTtsModelConfig().apply {
+            this.vits = vits
+            // NNAPI takes over threading itself; the CPU EPs get more threads.
+            numThreads = if (provider == "nnapi") 2 else 4
+            debug = false
+            this.provider = provider
+        }
+        val config = OfflineTtsConfig().apply {
+            model = ttsModel
+            silenceScale = 0.8f
+        }
+        val candidate = OfflineTts(context.assets, config)
+        if (candidate == null) {
+            Timber.w("SherpaOnnxOfflineTtsEngine: provider $provider failed to init")
+            return@runCatching false
+        }
+        // Probe the provider: some EPs (NNAPI partial offloads, etc.) create a
+        // session but only ever return silence. A silent probe must not stick.
+        val probe = candidate.generate("test", 0, 1.0f)
+        val probePeak = probe?.samples?.let(::peakAbs) ?: 0f
+        if (probePeak < 0.01f) {
+            Timber.w("SherpaOnnxOfflineTtsEngine: provider $provider produced silent probe — rejecting")
+            runCatching { candidate.release() }
+            return@runCatching false
+        }
+        tts = candidate
+        true
+    }.onFailure { Timber.e(it, "TTS init failed (provider=$provider)") }.getOrDefault(false)
+
+    private fun peakAbs(samples: FloatArray): Float {
+        var peak = 0f
+        for (s in samples) {
+            val a = if (s < 0f) -s else s
+            if (a > peak) peak = a
+        }
+        return peak
     }
 
     /**
@@ -77,7 +146,16 @@ class SherpaOnnxOfflineTtsEngine @Inject constructor(
         if (!ensureInitialized()) return null
         val t = tts ?: return null
         return runCatching {
-            val audio: GeneratedAudio = t.generate(text, 0, speed.coerceIn(0.5f, 2.0f))
+            // Spoken text = LLM output through the text-normalization
+            // pipeline (numbers, dates, currencies, units, math, emoji,
+            // URLs, phones, abbreviations) — never prompt-modified.
+            val normalized = textNormalization.normalize(text).text
+            if (normalized.isBlank()) return null
+            // Anything still outside the VITS lexicon (brands, jargon) would
+            // be silently dropped by the model — spell it instead ("LLM"→"l l m").
+            val covered = lexicon?.let { EnglishTtsNormalizer.spellOutOfLexicon(normalized, it) } ?: normalized
+            Timber.d("TTS: speaking '${covered}'")
+            val audio: GeneratedAudio = t.generate(covered, 0, speed.coerceIn(0.5f, 2.0f))
             audio.samples
         }.onFailure { Timber.e(it, "TTS synth failed") }.getOrNull()
     }

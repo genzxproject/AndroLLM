@@ -60,6 +60,33 @@ class VoiceSettingsStore @Inject constructor(
         val LOW_LATENCY = booleanPreferencesKey("low_latency_mode")
         val NOISE_SUPPRESSION = booleanPreferencesKey("noise_suppression")
         val ECHO_CANCELLATION = booleanPreferencesKey("echo_cancellation")
+        val STT_ENGINE = stringPreferencesKey("stt_engine")
+        val WHISPER_MODEL = stringPreferencesKey("whisper_model")
+        val STT_LANGUAGE = stringPreferencesKey("stt_language")
+        val STT_TRANSLATE = booleanPreferencesKey("stt_translate")
+        val STT_THREADS = intPreferencesKey("stt_threads")
+        val STT_BEAM = intPreferencesKey("stt_beam")
+        val STT_TEMPERATURE = floatPreferencesKey("stt_temperature")
+        val STT_MAX_SECONDS = intPreferencesKey("stt_max_seconds")
+        val STT_STREAMING = booleanPreferencesKey("stt_streaming")
+        val STT_GPU = booleanPreferencesKey("stt_gpu")
+        val AUTO_OPEN_OVERLAY = booleanPreferencesKey("auto_open_overlay")
+        val PLAY_START_SOUND = booleanPreferencesKey("play_start_sound")
+        val PLAY_END_SOUND = booleanPreferencesKey("play_end_sound")
+        val OVERLAY_TRANSPARENCY = floatPreferencesKey("overlay_transparency")
+        val OVERLAY_SIZE = floatPreferencesKey("overlay_size")
+        val ANIMATION_SPEED = floatPreferencesKey("animation_speed")
+        val TN_ENABLED = booleanPreferencesKey("tn_enabled")
+        val TN_NUMBERS = booleanPreferencesKey("tn_numbers")
+        val TN_DATES = booleanPreferencesKey("tn_dates")
+        val TN_CURRENCY = booleanPreferencesKey("tn_currency")
+        val TN_UNITS = booleanPreferencesKey("tn_units")
+        val TN_MATH = booleanPreferencesKey("tn_math")
+        val TN_EMOJI = booleanPreferencesKey("tn_emoji")
+        val TN_URLS_EMAILS = booleanPreferencesKey("tn_urls_emails")
+        val TN_PHONES = booleanPreferencesKey("tn_phones")
+        val TN_ABBREVIATIONS = booleanPreferencesKey("tn_abbreviations")
+        val TN_DEBUG = booleanPreferencesKey("tn_debug")
     }
 
     private val dataStore: DataStore<Preferences> = context.voiceDataStore
@@ -107,8 +134,38 @@ class VoiceSettingsStore @Inject constructor(
         autoReadAnswers = p[Keys.AUTO_READ] ?: true,
         cloudFallback = p[Keys.CLOUD_FALLBACK] ?: true,
         lowLatencyMode = p[Keys.LOW_LATENCY] ?: false,
-        noiseSuppression = p[Keys.NOISE_SUPPRESSION] ?: true,
-        echoCancellation = p[Keys.ECHO_CANCELLATION] ?: true
+        noiseSuppression = p[Keys.NOISE_SUPPRESSION] ?: false,
+        echoCancellation = p[Keys.ECHO_CANCELLATION] ?: false,
+        sttEngine = p[Keys.STT_ENGINE] ?: "whisper",
+        whisperModel = p[Keys.WHISPER_MODEL] ?: "base.en",
+        sttLanguage = p[Keys.STT_LANGUAGE] ?: "auto",
+        sttTranslate = p[Keys.STT_TRANSLATE] ?: false,
+        sttThreads = p[Keys.STT_THREADS] ?: -1,
+        sttBeamSize = p[Keys.STT_BEAM] ?: 1,
+        sttTemperature = p[Keys.STT_TEMPERATURE] ?: 0.0f,
+        sttMaxSeconds = p[Keys.STT_MAX_SECONDS] ?: 30,
+        sttStreaming = p[Keys.STT_STREAMING] ?: true,
+        sttGpu = p[Keys.STT_GPU] ?: false,
+        autoOpenOverlay = p[Keys.AUTO_OPEN_OVERLAY] ?: true,
+        playStartSound = p[Keys.PLAY_START_SOUND] ?: true,
+        playEndSound = p[Keys.PLAY_END_SOUND] ?: true,
+        overlayTransparency = (p[Keys.OVERLAY_TRANSPARENCY] ?: VoiceSettings().overlayTransparency)
+            .coerceIn(VoiceSettings.MIN_OVERLAY_TRANSPARENCY, VoiceSettings.MAX_OVERLAY_TRANSPARENCY),
+        overlaySize = (p[Keys.OVERLAY_SIZE] ?: VoiceSettings().overlaySize)
+            .coerceIn(VoiceSettings.MIN_OVERLAY_SIZE, VoiceSettings.MAX_OVERLAY_SIZE),
+        animationSpeed = (p[Keys.ANIMATION_SPEED] ?: VoiceSettings().animationSpeed)
+            .coerceIn(VoiceSettings.MIN_ANIMATION_SPEED, VoiceSettings.MAX_ANIMATION_SPEED),
+        tnEnabled = p[Keys.TN_ENABLED] ?: VoiceSettings().tnEnabled,
+        tnNumbers = p[Keys.TN_NUMBERS] ?: VoiceSettings().tnNumbers,
+        tnDates = p[Keys.TN_DATES] ?: VoiceSettings().tnDates,
+        tnCurrency = p[Keys.TN_CURRENCY] ?: VoiceSettings().tnCurrency,
+        tnUnits = p[Keys.TN_UNITS] ?: VoiceSettings().tnUnits,
+        tnMath = p[Keys.TN_MATH] ?: VoiceSettings().tnMath,
+        tnEmoji = p[Keys.TN_EMOJI] ?: VoiceSettings().tnEmoji,
+        tnUrlsEmails = p[Keys.TN_URLS_EMAILS] ?: VoiceSettings().tnUrlsEmails,
+        tnPhones = p[Keys.TN_PHONES] ?: VoiceSettings().tnPhones,
+        tnAbbreviations = p[Keys.TN_ABBREVIATIONS] ?: VoiceSettings().tnAbbreviations,
+        tnDebug = p[Keys.TN_DEBUG] ?: VoiceSettings().tnDebug
     )
 
     private fun wakePhrasesFrom(p: Preferences): String {
@@ -146,5 +203,32 @@ class VoiceSettingsStore @Inject constructor(
         p[Keys.LOW_LATENCY] = s.lowLatencyMode
         p[Keys.NOISE_SUPPRESSION] = s.noiseSuppression
         p[Keys.ECHO_CANCELLATION] = s.echoCancellation
+        p[Keys.STT_ENGINE] = s.sttEngine
+        p[Keys.WHISPER_MODEL] = s.whisperModel
+        p[Keys.STT_LANGUAGE] = s.sttLanguage
+        p[Keys.STT_TRANSLATE] = s.sttTranslate
+        p[Keys.STT_THREADS] = s.sttThreads
+        p[Keys.STT_BEAM] = s.sttBeamSize
+        p[Keys.STT_TEMPERATURE] = s.sttTemperature
+        p[Keys.STT_MAX_SECONDS] = s.sttMaxSeconds
+        p[Keys.STT_STREAMING] = s.sttStreaming
+        p[Keys.STT_GPU] = s.sttGpu
+        p[Keys.AUTO_OPEN_OVERLAY] = s.autoOpenOverlay
+        p[Keys.PLAY_START_SOUND] = s.playStartSound
+        p[Keys.PLAY_END_SOUND] = s.playEndSound
+        p[Keys.OVERLAY_TRANSPARENCY] = s.overlayTransparency
+        p[Keys.OVERLAY_SIZE] = s.overlaySize
+        p[Keys.ANIMATION_SPEED] = s.animationSpeed
+        p[Keys.TN_ENABLED] = s.tnEnabled
+        p[Keys.TN_NUMBERS] = s.tnNumbers
+        p[Keys.TN_DATES] = s.tnDates
+        p[Keys.TN_CURRENCY] = s.tnCurrency
+        p[Keys.TN_UNITS] = s.tnUnits
+        p[Keys.TN_MATH] = s.tnMath
+        p[Keys.TN_EMOJI] = s.tnEmoji
+        p[Keys.TN_URLS_EMAILS] = s.tnUrlsEmails
+        p[Keys.TN_PHONES] = s.tnPhones
+        p[Keys.TN_ABBREVIATIONS] = s.tnAbbreviations
+        p[Keys.TN_DEBUG] = s.tnDebug
     }
 }

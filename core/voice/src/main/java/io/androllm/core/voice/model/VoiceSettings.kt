@@ -41,8 +41,71 @@ data class VoiceSettings(
     /** Skip memory retrieval for the fastest possible first token. */
     val lowLatencyMode: Boolean = false,
     /** System noise suppression / echo cancellation on the audio capture. */
-    val noiseSuppression: Boolean = true,
-    val echoCancellation: Boolean = true
+    val noiseSuppression: Boolean = false,
+    val echoCancellation: Boolean = false,
+
+    // ── Speech recognition (Whisper.cpp) ─────────────────────────────────────
+
+    /** STT engine id ("whisper" = whisper.cpp, "sherpa" = sherpa-onnx ASR). */
+    val sttEngine: String = "whisper",
+    /** Installed whisper.cpp model id, e.g. "base.en" / "small" / "large-v3-turbo". */
+    val whisperModel: String = "base.en",
+    /** Whisper language ("auto" = auto-detect) or ISO-639 code like "en". */
+    val sttLanguage: String = "auto",
+    /** Translate non-English speech to English. */
+    val sttTranslate: Boolean = false,
+    /** Whisper CPU threads (-1 = auto-detect). */
+    val sttThreads: Int = -1,
+    /** Beam search size (1 = greedy). */
+    val sttBeamSize: Int = 1,
+    /** Sampling temperature (0.0 = deterministic). */
+    val sttTemperature: Float = 0.0f,
+    /** Maximum recording length in seconds per turn. */
+    val sttMaxSeconds: Int = 30,
+    /** Live partial transcripts while speaking (sliding window). */
+    val sttStreaming: Boolean = true,
+    /** GPU acceleration (Vulkan) when built in. Reserved; CPU-only for now. */
+    val sttGpu: Boolean = false,
+
+    // ── Gemini Live-style overlay experience ──────────────────────────────────
+
+    /** Auto-launch the full-screen floating overlay when the wake word fires. */
+    val autoOpenOverlay: Boolean = true,
+    /** Play a short chime when the overlay opens / starts listening. */
+    val playStartSound: Boolean = true,
+    /** Play a short chime when a turn finishes. */
+    val playEndSound: Boolean = true,
+    /** Overlay glass background opacity (0.25 = very transparent .. 1.0 = solid). */
+    val overlayTransparency: Float = 0.78f,
+    /** Overlay content scale (0.8 = compact .. 1.2 = large). */
+    val overlaySize: Float = 1.0f,
+    /** Animation speed multiplier (0.5 = calm .. 2.0 = snappy). */
+    val animationSpeed: Float = 1.0f,
+
+    // ── Text Normalization (LLM output → TTS-ready speech) ───────────────────
+
+    /** Master switch for the normalization pipeline. */
+    val tnEnabled: Boolean = true,
+    /** Convert numbers (integers, decimals, negatives, %, ordinals, versions, IP). */
+    val tnNumbers: Boolean = true,
+    /** Dates & times ("08/09/2026" → "August ninth twenty twenty six"). */
+    val tnDates: Boolean = true,
+    /** Currencies ("€19.99" → "nineteen euros and ninety nine cents"). */
+    val tnCurrency: Boolean = true,
+    /** Units ("1200 MHz" → "one thousand two hundred megahertz"). */
+    val tnUnits: Boolean = true,
+    /** Math symbols & expressions ("2+2", "16:9", "≈"). */
+    val tnMath: Boolean = true,
+    /** Emoji → words, stray symbols cleaned. */
+    val tnEmoji: Boolean = true,
+    /** URLs/emails ("user@example.com" → "user at example dot com"). */
+    val tnUrlsEmails: Boolean = true,
+    /** Phone numbers spoken digit by digit. */
+    val tnPhones: Boolean = true,
+    /** Acronyms & technical terms ("GPU" → "g p u"). */
+    val tnAbbreviations: Boolean = true,
+    /** Trace each stage to logcat + debug overlay for authoring. */
+    val tnDebug: Boolean = false
 ) {
     companion object {
         const val MIN_SENSITIVITY = 0.1f
@@ -55,5 +118,19 @@ data class VoiceSettings(
         const val MAX_PITCH = 1.5f
         const val MIN_VOLUME = 0.0f
         const val MAX_VOLUME = 1.0f
+        const val MIN_OVERLAY_TRANSPARENCY = 0.25f
+        const val MAX_OVERLAY_TRANSPARENCY = 1.0f
+        const val MIN_OVERLAY_SIZE = 0.8f
+        const val MAX_OVERLAY_SIZE = 1.2f
+        const val MIN_ANIMATION_SPEED = 0.5f
+        const val MAX_ANIMATION_SPEED = 2.0f
+        const val MIN_STT_THREADS = 1
+        const val MAX_STT_THREADS = 16
+        const val MIN_STT_BEAM = 1
+        const val MAX_STT_BEAM = 5
+        const val MIN_STT_TEMPERATURE = 0.0f
+        const val MAX_STT_TEMPERATURE = 1.0f
+        const val MIN_STT_MAX_SECONDS = 5
+        const val MAX_STT_MAX_SECONDS = 120
     }
 }

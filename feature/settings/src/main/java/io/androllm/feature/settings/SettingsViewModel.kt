@@ -21,6 +21,21 @@ import io.androllm.core.utils.ShareUtils
 import io.androllm.core.utils.StorageUtils
 import io.androllm.core.voice.VoiceSettingsStore
 import io.androllm.core.voice.model.VoiceSettings
+import io.androllm.core.mcp.McpConnectionManager
+import io.androllm.core.mcp.McpServer
+import io.androllm.core.mcp.McpSettingsStore
+import io.androllm.core.voice.stt.WhisperModel
+import io.androllm.core.tools.registry.ToolRegistry
+import io.androllm.core.tools.settings.AutomationSettings
+import io.androllm.core.tools.settings.AutomationSettingsStore
+import io.androllm.core.tools.settings.ConfirmationMode
+import io.androllm.core.accessibility.AccessibilityAutomationService
+import io.androllm.core.accessibility.controller.AccessibilityController
+import io.androllm.core.accessibility.settings.AccessibilitySettings
+import io.androllm.core.accessibility.settings.AccessibilitySettingsStore
+import io.androllm.core.voice.stt.WhisperModelManager
+import io.androllm.core.voice.stt.WhisperModels
+import io.androllm.core.voice.stt.WhisperSpeechRecognizer
 import io.androllm.feature.voice.VoiceAssistant
 import io.androllm.feature.voice.VoiceAssistantController
 import io.androllm.feature.voice.ui.OverlayPermission
@@ -48,7 +63,15 @@ class SettingsViewModel @Inject constructor(
     private val memoryManager: MemoryManager,
     private val voiceSettingsStore: VoiceSettingsStore,
     private val voiceController: VoiceAssistantController,
-    private val wakeWordEngine: WakeWordEngine
+    private val wakeWordEngine: WakeWordEngine,
+    private val whisperModelManager: WhisperModelManager,
+    private val whisperSpeechRecognizer: WhisperSpeechRecognizer,
+    private val automationSettingsStore: AutomationSettingsStore,
+    private val toolRegistry: ToolRegistry,
+    private val accessibilitySettingsStore: AccessibilitySettingsStore,
+    private val accessibilityController: AccessibilityController,
+    private val mcpSettingsStore: McpSettingsStore,
+    private val mcpConnectionManager: McpConnectionManager
 ) : BaseViewModel() {
 
     private val _uiState = MutableStateFlow<UiState<SettingsData>>(UiState.Loading())
@@ -74,6 +97,195 @@ class SettingsViewModel @Inject constructor(
     private val _voiceSettings = MutableStateFlow(VoiceSettings())
     val voiceSettings: StateFlow<VoiceSettings> = _voiceSettings.asStateFlow()
 
+    // ── Automation / Tool Calling ──
+
+    private val _automationSettings = MutableStateFlow(AutomationSettings())
+    val automationSettings: StateFlow<AutomationSettings> = _automationSettings.asStateFlow()
+
+    /** Registered tools (including future plugins) for the per-tool toggles. */
+    val tools: List<io.androllm.core.tools.api.Tool>
+        get() = toolRegistry.all()
+
+    private fun observeAutomationSettings() {
+        viewModelScope.launch {
+            automationSettingsStore.settings.collect { _automationSettings.value = it }
+        }
+    }
+
+    fun updateAutomationSettings(settings: AutomationSettings) {
+        viewModelScope.launch {
+            automationSettingsStore.update { settings }
+        }
+    }
+
+    fun toggleAutomationEnabled() {
+        viewModelScope.launch {
+            automationSettingsStore.setToolCallingEnabled(!_automationSettings.value.toolCallingEnabled)
+        }
+    }
+
+    fun setAutomationConfirmationMode(mode: ConfirmationMode) {
+        viewModelScope.launch {
+            automationSettingsStore.setConfirmationMode(mode)
+        }
+    }
+
+    fun setToolEnabled(name: String, enabled: Boolean) {
+        viewModelScope.launch {
+            automationSettingsStore.setToolEnabled(name, enabled)
+        }
+    }
+
+    // ── MCP Servers ──
+
+    private val _mcpServers = MutableStateFlow<List<McpServer>>(emptyList())
+    val mcpServers: StateFlow<List<McpServer>> = _mcpServers.asStateFlow()
+
+    private val _mcpStates = MutableStateFlow<Map<String, McpConnectionManager.State>>(emptyMap())
+    val mcpStates: StateFlow<Map<String, McpConnectionManager.State>> = _mcpStates.asStateFlow()
+
+    private fun observeMcp() {
+        viewModelScope.launch {
+            mcpSettingsStore.servers.collect { _mcpServers.value = it }
+        }
+        viewModelScope.launch {
+            mcpConnectionManager.states.collect { _mcpStates.value = it }
+        }
+        // Connect every enabled server when the settings screen opens so the
+        // planner sees their tools; a failing server only marks itself failed.
+        viewModelScope.launch {
+            mcpConnectionManager.connectAll()
+        }
+    }
+
+    fun addMcpServer(name: String, url: String, token: String) {
+        viewModelScope.launch {
+            val server = McpServer.fromName(name, url, token)
+            mcpSettingsStore.add(server)
+            if (server.enabled) mcpConnectionManager.connect(server)
+        }
+    }
+
+    fun removeMcpServer(id: String) {
+        viewModelScope.launch {
+            mcpConnectionManager.disconnect(id)
+            mcpSettingsStore.remove(id)
+        }
+    }
+
+    fun setMcpServerEnabled(server: McpServer, enabled: Boolean) {
+        viewModelScope.launch {
+            mcpSettingsStore.setEnabled(server.id, enabled)
+            if (enabled) mcpConnectionManager.connect(server.copy(enabled = true))
+            else mcpConnectionManager.disconnect(server.id)
+        }
+    }
+
+    // ── UI Automation (accessibility engine) ──
+
+    private val _accessibilitySettings = MutableStateFlow(AccessibilitySettings())
+    val accessibilitySettings: StateFlow<AccessibilitySettings> = _accessibilitySettings.asStateFlow()
+
+    /** True when the user enabled the service in system settings (read live). */
+    val accessibilityServiceEnabled: Boolean
+        get() = AccessibilityAutomationService.isServiceEnabled(context)
+
+    /** True while the service is bound to the running engine. */
+    val accessibilityConnected: Boolean
+        get() = accessibilityController.isConnected
+
+    private fun observeAccessibilitySettings() {
+        viewModelScope.launch {
+            accessibilitySettingsStore.settings.collect { _accessibilitySettings.value = it }
+        }
+    }
+
+    fun updateAccessibilitySettings(settings: AccessibilitySettings) {
+        viewModelScope.launch {
+            accessibilitySettingsStore.update { settings }
+        }
+    }
+
+    fun openAccessibilitySettings() {
+        accessibilityController.openSystemSettings()
+    }
+
+    // ── Whisper speech recognition ──
+
+    private val _whisperModels = MutableStateFlow<List<WhisperModel>>(WhisperModels.ALL)
+    val whisperModels: StateFlow<List<WhisperModel>> = _whisperModels.asStateFlow()
+
+    /** ids of fully downloaded models. */
+    private val _whisperInstalled = MutableStateFlow<Set<String>>(emptySet())
+    val whisperInstalled: StateFlow<Set<String>> = _whisperInstalled.asStateFlow()
+
+    /** (modelId, progress 0..1) while downloading. */
+    private val _whisperDownload = MutableStateFlow<Pair<String, Float>?>(null)
+    val whisperDownload: StateFlow<Pair<String, Float>?> = _whisperDownload.asStateFlow()
+
+    /** One-line status message for the section. */
+    private val _whisperMessage = MutableStateFlow<String?>(null)
+    val whisperMessage: StateFlow<String?> = _whisperMessage.asStateFlow()
+
+    /** Active model id (== settings.whisperModel) when loaded. */
+    val whisperActiveModelId: String? get() = _voiceSettings.value.whisperModel
+
+    /** Bytes consumed by downloaded whisper models on disk. */
+    val whisperStorageBytes: Long get() = whisperModelManager.storageInstalledSizeBytes()
+
+    fun refreshWhisperModels() {
+        _whisperInstalled.value = whisperModelManager.installedModels().map { it.id }.toSet()
+    }
+
+    fun whisperIsInstalled(id: String): Boolean = id in _whisperInstalled.value
+
+    fun downloadWhisperModel(id: String) {
+        val model = WhisperModels.byId(id) ?: return
+        if (_whisperDownload.value?.first == id) return
+        viewModelScope.launch {
+            _whisperDownload.value = id to 0f
+            _whisperMessage.value = "Downloading ${model.displayName}…"
+            runCatching {
+                whisperModelManager.download(model) { done, total ->
+                    _whisperDownload.value = id to (if (total > 0) done.toFloat() / total else 0f)
+                }
+            }.onSuccess {
+                refreshWhisperModels()
+                _whisperMessage.value = "${model.displayName} installed."
+            }.onFailure {
+                _whisperMessage.value = "Download failed: ${it.message}"
+            }
+            _whisperDownload.value = null
+        }
+    }
+
+    fun deleteWhisperModel(id: String) {
+        val model = WhisperModels.byId(id) ?: return
+        viewModelScope.launch {
+            whisperModelManager.delete(model)
+            refreshWhisperModels()
+            _whisperMessage.value = "${model.displayName} deleted."
+            if (_voiceSettings.value.whisperModel == id) {
+                updateVoiceSettings(_voiceSettings.value.copy(whisperModel = WhisperModels.recommendedForDevice(deviceRamGb()).id))
+            }
+        }
+    }
+
+    fun selectWhisperModel(id: String) {
+        if (!whisperIsInstalled(id)) return
+        updateVoiceSettings(_voiceSettings.value.copy(whisperModel = id))
+        _whisperMessage.value = "Speech model set to ${WhisperModels.byId(id)?.displayName}."
+    }
+
+    private fun deviceRamGb(): Long =
+        (Runtime.getRuntime().maxMemory() / (1024L * 1024L * 1024L)).coerceAtLeast(1L)
+
+    /** Live helper for a subscriber-free recompute (called from init). */
+    private fun refreshWhisperFromInit() {
+        refreshWhisperModels()
+    }
+
+
     /** Live assistant phase (drives the settings section status line). */
     val voiceState: StateFlow<io.androllm.feature.voice.VoiceUiState> = voiceController.state
 
@@ -97,6 +309,10 @@ class SettingsViewModel @Inject constructor(
         refreshMemoryStats()
         refreshStorageStats()
         observeVoiceSettings()
+        observeAutomationSettings()
+        observeAccessibilitySettings()
+        observeMcp()
+        refreshWhisperFromInit()
     }
 
     // ── Voice assistant ──
