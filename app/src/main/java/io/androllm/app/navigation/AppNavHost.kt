@@ -51,10 +51,32 @@ fun AppNavHost(
     onPendingRouteConsumed: () -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
     // Null until resolved — routing waits for this rather than assuming a value.
     var onboardingCompleted by remember { mutableStateOf<Boolean?>(null) }
     LaunchedEffect(Unit) {
         onboardingCompleted = preferencesDataStore.onboardingCompleted.first()
+        // Auto-update check — jalan untuk SEMUA user (login/guest) setiap app start.
+        // Updater ada di app module, jadi di sini (bukan splash) yang bisa akses.
+        launch {
+            runCatching {
+                val current = runCatching {
+                    context.packageManager.getPackageInfo(context.packageName, 0).versionName
+                }.getOrNull() ?: "1.0"
+                val info = io.androllm.app.auth.Updater.checkForUpdate(current)
+                if (info.hasUpdate && io.androllm.app.auth.Updater.canRequestInstall(context)) {
+                    val apk = io.androllm.app.auth.Updater.downloadApk(info.apkUrl, context, info.sha256)
+                    if (apk != null) {
+                        android.widget.Toast.makeText(
+                            context,
+                            "Pembaruan ${info.latestVersion} tersedia — mengunduh…",
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
+                        io.androllm.app.auth.Updater.installApk(context, apk)
+                    }
+                }
+            }
+        }
     }
 
     // Clears the whole back stack so the entry flow never lingers behind Home.

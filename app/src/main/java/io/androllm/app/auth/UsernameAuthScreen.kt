@@ -209,22 +209,6 @@ fun UsernameAuthScreen(onAuthSuccess: (Boolean) -> Unit) {
         return
     }
 
-    LaunchedEffect(Unit) {
-        // Auto-check update saat masuk (tidak mengganggu — cuma toast kalau ada baru)
-        val current = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "1.0"
-        val info = Updater.checkForUpdate(current)
-        if (info.hasUpdate && Updater.canRequestInstall(context)) {
-            val apk = Updater.downloadApk(info.apkUrl, context, info.sha256) { p ->
-                downloadProgress = p
-            }
-            downloadProgress = null
-            if (apk != null) {
-                Toast.makeText(context, "Pembaruan ${info.latestVersion} siap — install", Toast.LENGTH_LONG).show()
-                Updater.installApk(context, apk)
-            }
-        }
-    }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
